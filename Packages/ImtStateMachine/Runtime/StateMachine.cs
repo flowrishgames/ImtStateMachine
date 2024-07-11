@@ -13,6 +13,7 @@
 // 2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.
 // 3. This notice may not be removed or altered from any source distribution.
 
+using Cysharp.Threading.Tasks;
 using System;
 using System.Collections.Generic;
 using System.Runtime.ExceptionServices;
@@ -83,24 +84,27 @@ namespace IceMilkTea.StateMachine
             /// <summary>
             /// ステートに突入したときの処理を行います
             /// </summary>
-            protected internal virtual void Enter()
+            protected internal virtual UniTask Enter()
             {
+                return UniTask.CompletedTask;
             }
 
 
             /// <summary>
             /// ステートを更新するときの処理を行います
             /// </summary>
-            protected internal virtual void Update()
+            protected internal virtual UniTask Update()
             {
+                return UniTask.CompletedTask;
             }
 
 
             /// <summary>
             /// ステートから脱出したときの処理を行います
             /// </summary>
-            protected internal virtual void Exit()
+            protected internal virtual UniTask Exit()
             {
+                return UniTask.CompletedTask;
             }
 
 
@@ -593,7 +597,7 @@ namespace IceMilkTea.StateMachine
         /// <exception cref="InvalidOperationException">現在のステートマシンは、別のスレッドによって更新処理を実行しています。[UpdaterThread={LastUpdateThreadId}, CurrentThread={currentThreadId}]</exception>
         /// <exception cref="InvalidOperationException">現在のステートマシンは、既に更新処理を実行しています</exception>
         /// <exception cref="InvalidOperationException">開始ステートが設定されていないため、ステートマシンの起動が出来ません</exception>
-        public virtual void Update()
+        public virtual async UniTask Update()
         {
             // もしステートマシンの更新状態がアイドリング以外だったら
             if (updateState != UpdateState.Idle)
@@ -636,7 +640,7 @@ namespace IceMilkTea.StateMachine
                 {
                     // Enter処理中であることを設定してEnterを呼ぶ
                     updateState = UpdateState.Enter;
-                    currentState.Enter();
+                    await currentState.Enter();
                 }
                 catch (Exception exception)
                 {
@@ -669,7 +673,7 @@ namespace IceMilkTea.StateMachine
                 {
                     // Update処理中であることを設定してUpdateを呼ぶ
                     updateState = UpdateState.Update;
-                    currentState.Update();
+                    await currentState.Update();
                 }
 
 
@@ -678,7 +682,7 @@ namespace IceMilkTea.StateMachine
                 {
                     // Exit処理中であることを設定してExit処理を呼ぶ
                     updateState = UpdateState.Exit;
-                    currentState.Exit();
+                    await currentState.Exit();
 
 
                     // 次のステートに切り替える
@@ -688,7 +692,7 @@ namespace IceMilkTea.StateMachine
 
                     // Enter処理中であることを設定してEnterを呼ぶ
                     updateState = UpdateState.Enter;
-                    currentState.Enter();
+                    await currentState.Enter();
                 }
 
 
