@@ -84,7 +84,7 @@ namespace IceMilkTea.StateMachine
             /// <summary>
             /// ステートに突入したときの処理を行います
             /// </summary>
-            protected internal virtual UniTask Enter()
+            protected internal virtual UniTask Enter(CancellationToken ct = default)
             {
                 return UniTask.CompletedTask;
             }
@@ -93,7 +93,7 @@ namespace IceMilkTea.StateMachine
             /// <summary>
             /// ステートを更新するときの処理を行います
             /// </summary>
-            protected internal virtual UniTask Update()
+            protected internal virtual UniTask Update(CancellationToken ct = default)
             {
                 return UniTask.CompletedTask;
             }
@@ -102,7 +102,7 @@ namespace IceMilkTea.StateMachine
             /// <summary>
             /// ステートから脱出したときの処理を行います
             /// </summary>
-            protected internal virtual UniTask Exit()
+            protected internal virtual UniTask Exit(CancellationToken ct = default)
             {
                 return UniTask.CompletedTask;
             }
@@ -267,6 +267,8 @@ namespace IceMilkTea.StateMachine
         public TEvent LastAcceptedEventID { get; private set; }
 
 
+        private CancellationTokenSource cancellationTokenSource;
+
 
         /// <summary>
         /// ImtStateMachine のインスタンスを初期化します
@@ -292,6 +294,9 @@ namespace IceMilkTea.StateMachine
             AllowRetransition = false;
             UnhandledExceptionMode = ImtStateMachineUnhandledExceptionMode.ThrowException;
             stateFactorySet = new HashSet<Func<Type, State>>();
+
+            cancellationTokenSource?.Cancel();
+            cancellationTokenSource = new CancellationTokenSource();
         }
 
 
@@ -640,7 +645,7 @@ namespace IceMilkTea.StateMachine
                 {
                     // Enter処理中であることを設定してEnterを呼ぶ
                     updateState = UpdateState.Enter;
-                    await currentState.Enter();
+                    await currentState.Enter(cancellationTokenSource.Token);
                 }
                 catch (Exception exception)
                 {
@@ -673,7 +678,7 @@ namespace IceMilkTea.StateMachine
                 {
                     // Update処理中であることを設定してUpdateを呼ぶ
                     updateState = UpdateState.Update;
-                    await currentState.Update();
+                    await currentState.Update(cancellationTokenSource.Token);
                 }
 
 
@@ -682,7 +687,7 @@ namespace IceMilkTea.StateMachine
                 {
                     // Exit処理中であることを設定してExit処理を呼ぶ
                     updateState = UpdateState.Exit;
-                    await currentState.Exit();
+                    await currentState.Exit(cancellationTokenSource.Token);
 
 
                     // 次のステートに切り替える
@@ -692,7 +697,7 @@ namespace IceMilkTea.StateMachine
 
                     // Enter処理中であることを設定してEnterを呼ぶ
                     updateState = UpdateState.Enter;
-                    await currentState.Enter();
+                    await currentState.Enter(cancellationTokenSource.Token);
                 }
 
 
@@ -718,6 +723,9 @@ namespace IceMilkTea.StateMachine
         /// <exception cref="ArgumentNullException">exception が null です</exception>
         private void DoHandleException(Exception exception)
         {
+            //キャンセル
+            cancellationTokenSource?.Cancel();
+
             // nullを渡されたら
             if (exception == null)
             {
