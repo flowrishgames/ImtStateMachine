@@ -267,9 +267,6 @@ namespace IceMilkTea.StateMachine
         public TEvent LastAcceptedEventID { get; private set; }
 
 
-        private CancellationTokenSource cancellationTokenSource;
-
-
         /// <summary>
         /// ImtStateMachine のインスタンスを初期化します
         /// </summary>
@@ -295,8 +292,6 @@ namespace IceMilkTea.StateMachine
             UnhandledExceptionMode = ImtStateMachineUnhandledExceptionMode.ThrowException;
             stateFactorySet = new HashSet<Func<Type, State>>();
 
-            cancellationTokenSource?.Cancel();
-            cancellationTokenSource = new CancellationTokenSource();
         }
 
 
@@ -602,7 +597,7 @@ namespace IceMilkTea.StateMachine
         /// <exception cref="InvalidOperationException">現在のステートマシンは、別のスレッドによって更新処理を実行しています。[UpdaterThread={LastUpdateThreadId}, CurrentThread={currentThreadId}]</exception>
         /// <exception cref="InvalidOperationException">現在のステートマシンは、既に更新処理を実行しています</exception>
         /// <exception cref="InvalidOperationException">開始ステートが設定されていないため、ステートマシンの起動が出来ません</exception>
-        public virtual async UniTask Update()
+        public virtual async UniTask Update(CancellationTokenSource ct)
         {
             // もしステートマシンの更新状態がアイドリング以外だったら
             if (updateState != UpdateState.Idle)
@@ -645,7 +640,7 @@ namespace IceMilkTea.StateMachine
                 {
                     // Enter処理中であることを設定してEnterを呼ぶ
                     updateState = UpdateState.Enter;
-                    await currentState.Enter(cancellationTokenSource.Token);
+                    await currentState.Enter(ct.Token);
                 }
                 catch (Exception exception)
                 {
@@ -678,7 +673,7 @@ namespace IceMilkTea.StateMachine
                 {
                     // Update処理中であることを設定してUpdateを呼ぶ
                     updateState = UpdateState.Update;
-                    await currentState.Update(cancellationTokenSource.Token);
+                    await currentState.Update(ct.Token);
                 }
 
 
@@ -687,7 +682,7 @@ namespace IceMilkTea.StateMachine
                 {
                     // Exit処理中であることを設定してExit処理を呼ぶ
                     updateState = UpdateState.Exit;
-                    await currentState.Exit(cancellationTokenSource.Token);
+                    await currentState.Exit(ct.Token);
 
 
                     // 次のステートに切り替える
@@ -697,7 +692,7 @@ namespace IceMilkTea.StateMachine
 
                     // Enter処理中であることを設定してEnterを呼ぶ
                     updateState = UpdateState.Enter;
-                    await currentState.Enter(cancellationTokenSource.Token);
+                    await currentState.Enter(ct.Token);
                 }
 
 
@@ -706,11 +701,14 @@ namespace IceMilkTea.StateMachine
             }
             catch (Exception exception)
             {
+                ct.Cancel();
                 // 更新状態をアイドリングにして、例外発生時のエラーハンドリングを行い終了する
                 updateState = UpdateState.Idle;
                 DoHandleException(exception);
                 return;
             }
+
+            await UniTask.Yield();
         }
         #endregion
 
@@ -723,9 +721,6 @@ namespace IceMilkTea.StateMachine
         /// <exception cref="ArgumentNullException">exception が null です</exception>
         private void DoHandleException(Exception exception)
         {
-            //キャンセル
-            cancellationTokenSource?.Cancel();
-
             // nullを渡されたら
             if (exception == null)
             {
