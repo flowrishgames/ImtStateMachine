@@ -545,7 +545,7 @@ namespace IceMilkTea.StateMachine
             IfNotRunningThrowException();
 
 
-            // もし Exit 処理中なら
+            // もし Exit 処理中または遷移中の Enter 処理中なら
             if (updateState == UpdateState.Exit)
             {
                 // Exit 中の SendEvent は許されない
@@ -594,30 +594,16 @@ namespace IceMilkTea.StateMachine
         /// ステートマシンの現在処理しているステートの更新を行いますが、まだ未起動の場合は SetStartState 関数によって設定されたステートが起動します。
         /// また、ステートマシンが初回起動時の場合、ステートのUpdateは呼び出されず、次の更新処理が実行される時になります。
         /// </remarks>
-        /// <exception cref="InvalidOperationException">現在のステートマシンは、別のスレッドによって更新処理を実行しています。[UpdaterThread={LastUpdateThreadId}, CurrentThread={currentThreadId}]</exception>
         /// <exception cref="InvalidOperationException">現在のステートマシンは、既に更新処理を実行しています</exception>
         /// <exception cref="InvalidOperationException">開始ステートが設定されていないため、ステートマシンの起動が出来ません</exception>
-        public virtual async UniTask Update(CancellationTokenSource ct)
+        public virtual async UniTask Update(CancellationToken ct)
         {
             // もしステートマシンの更新状態がアイドリング以外だったら
             if (updateState != UpdateState.Idle)
             {
-                // もし別スレッドからのUpdateによる多重Updateなら
-                int currentThreadId = Thread.CurrentThread.ManagedThreadId;
-                if (LastUpdateThreadId != currentThreadId)
-                {
-                    // 別スレッドからの多重Updateであることを例外で吐く
-                    throw new InvalidOperationException($"現在のステートマシンは、別のスレッドによって更新処理を実行しています。[UpdaterThread={LastUpdateThreadId}, CurrentThread={currentThreadId}]");
-                }
-
-
                 // 多重でUpdateが呼び出せない例外を吐く
                 throw new InvalidOperationException("現在のステートマシンは、既に更新処理を実行しています");
             }
-
-
-            // Updateの起動スレッドIDを覚える
-            LastUpdateThreadId = Thread.CurrentThread.ManagedThreadId;
 
 
             // まだ未起動なら
@@ -640,7 +626,15 @@ namespace IceMilkTea.StateMachine
                 {
                     // Enter処理中であることを設定してEnterを呼ぶ
                     updateState = UpdateState.Enter;
-                    await currentState.Enter(ct.Token);
+                    await currentState.Enter(ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    // キャンセルによる中断は状態を復帰してそのまま再スローする
+                    nextState = currentState;
+                    currentState = null;
+                    updateState = UpdateState.Idle;
+                    throw;
                 }
                 catch (Exception exception)
                 {
@@ -673,7 +667,7 @@ namespace IceMilkTea.StateMachine
                 {
                     // Update処理中であることを設定してUpdateを呼ぶ
                     updateState = UpdateState.Update;
-                    await currentState.Update(ct.Token);
+                    await currentState.Update(ct);
                 }
 
 
@@ -682,33 +676,54 @@ namespace IceMilkTea.StateMachine
                 {
                     // Exit処理中であることを設定してExit処理を呼ぶ
                     updateState = UpdateState.Exit;
-                    await currentState.Exit(ct.Token);
+                    await currentState.Exit(ct);
 
 
                     // 次のステートに切り替える
+                    var previousState = currentState;
                     currentState = nextState;
                     nextState = null;
 
 
-                    // Enter処理中であることを設定してEnterを呼ぶ
-                    updateState = UpdateState.Enter;
-                    await currentState.Enter(ct.Token);
+                    try
+                    {
+                        // Enter処理中であることを設定してEnterを呼ぶ
+                        updateState = UpdateState.Enter;
+                        await currentState.Enter(ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // キャンセルはそのまま外側のcatchに委譲
+                        throw;
+                    }
+                    catch (Exception enterException)
+                    {
+                        // Enter失敗時: 状態を遷移前に復帰させてからエラーハンドリング
+                        currentState = previousState;
+                        nextState = null;
+                        updateState = UpdateState.Idle;
+                        DoHandleException(enterException);
+                        return;
+                    }
                 }
 
 
                 // 更新処理が終わったらアイドリングに戻る
                 updateState = UpdateState.Idle;
             }
+            catch (OperationCanceledException)
+            {
+                // キャンセルによる中断はアイドリングに戻してそのまま再スローする
+                updateState = UpdateState.Idle;
+                throw;
+            }
             catch (Exception exception)
             {
-                ct.Cancel();
                 // 更新状態をアイドリングにして、例外発生時のエラーハンドリングを行い終了する
                 updateState = UpdateState.Idle;
                 DoHandleException(exception);
                 return;
             }
-
-            await UniTask.Yield();
         }
         #endregion
 

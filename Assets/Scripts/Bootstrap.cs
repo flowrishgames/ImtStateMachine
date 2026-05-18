@@ -1,4 +1,5 @@
-﻿using IceMilkTea.StateMachine;
+﻿using System;
+using IceMilkTea.StateMachine;
 using UnityEngine;
 using Cysharp.Threading.Tasks;
 using System.Threading;
@@ -39,9 +40,16 @@ public class SmartBehaviourScript : MonoBehaviour
     private bool isLoop = true;
     private async void LoopAsync()
     {
-        while (!cancellationTokenSource.IsCancellationRequested)
+        try
         {
-            await stateMachine.Update(cancellationTokenSource);
+            while (!cancellationTokenSource.IsCancellationRequested)
+            {
+                await stateMachine.Update(cancellationTokenSource.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // キャンセルによる正常終了
         }
     }
 
